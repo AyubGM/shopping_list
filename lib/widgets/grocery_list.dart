@@ -18,6 +18,8 @@ class _GroceryListState extends State<GroceryList> {
   List<GroceryItem> _groceryItems = [];
   var _isLoading = true;
 
+  String? _errorMessage;
+
   @override
   void initState() {
     super.initState();
@@ -29,33 +31,49 @@ class _GroceryListState extends State<GroceryList> {
       'shoppinglist-6d3ea-default-rtdb.europe-west1.firebasedatabase.app',
       'shopping-list.json',
     );
-    final response = await http.get(url);
-    if (json.decode(response.body) == null) {
-      return;
-    }
 
-    final Map<String, dynamic> listData = json.decode(response.body);
-    final List<GroceryItem> loadItems = [];
-    for (final item in listData.entries) {
-      final category = categories.entries
-          .firstWhere(
-            (catItem) => catItem.value.title == item.value['category'],
-          )
-          .value;
-      loadItems.add(
-        GroceryItem(
-          id: item.key,
-          name: item.value['name'],
-          quantity: item.value['quantity'],
-          category: category,
-        ),
-      );
-    }
+    try {
+      final response = await http.get(url);
+      if (response.statusCode >= 400) {
+        setState(() {
+          _errorMessage = 'Failed to fetch data. Please try again later.';
+        });
+      }
 
-    setState(() {
-      _groceryItems = loadItems;
-      _isLoading = false;
-    });
+      if (json.decode(response.body) == null) {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final Map<String, dynamic> listData = json.decode(response.body);
+      final List<GroceryItem> loadItems = [];
+      for (final item in listData.entries) {
+        final category = categories.entries
+            .firstWhere(
+              (catItem) => catItem.value.title == item.value['category'],
+            )
+            .value;
+        loadItems.add(
+          GroceryItem(
+            id: item.key,
+            name: item.value['name'],
+            quantity: item.value['quantity'],
+            category: category,
+          ),
+        );
+      }
+
+      setState(() {
+        _groceryItems = loadItems;
+        _isLoading = false;
+      });
+    } catch (error) {
+      setState(() {
+        _errorMessage = 'Something went wrong. Please try again later.';
+      });
+    }
   }
 
   void _addItem() async {
@@ -78,10 +96,23 @@ class _GroceryListState extends State<GroceryList> {
     //_loadItems();
   }
 
-  void _removeItem(GroceryItem item) {
+  void _removeItem(GroceryItem item) async {
+    final index = _groceryItems.indexOf(item);
     setState(() {
       _groceryItems.remove(item);
     });
+
+    final url = Uri.https(
+      'shoppinglist-6d3ea-default-rtdb.europe-west1.firebasedatabase.app',
+      'shopping-list/${item.id}.json',
+    );
+
+    final response = await http.delete(url);
+    if (response.statusCode >= 400) {
+      setState(() {
+        _groceryItems.insert(index, item);
+      });
+    }
   }
 
   @override
@@ -111,6 +142,10 @@ class _GroceryListState extends State<GroceryList> {
           ),
         ),
       );
+    }
+
+    if (_errorMessage != null) {
+      content = Center(child: Text(_errorMessage!));
     }
 
     return Scaffold(
